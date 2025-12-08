@@ -4,6 +4,7 @@ from utils.logger import get_logger, setup_logging
 import openmeteo_requests
 import requests_cache
 from retry_requests import retry
+import pytz  # Добавляем импорт pytz
 
 logger = get_logger('Weather-data')
 
@@ -33,6 +34,48 @@ def setup_openmeteo_client(cache_expire_seconds=300):
     
     # Создание клиента Open-Meteo
     return openmeteo_requests.Client(session=retry_session)
+
+# Функция для конвертации времени из UTC в МСК с использованием pytz
+def convert_utc_to_msk_pytz(utc_datetime_str):
+    """
+    Конвертирует строку времени из UTC в МСК с использованием pytz
+    
+    Args:
+        utc_datetime_str: Строка времени в формате ISO (YYYY-MM-DDTHH:MM:SS+00:00)
+    
+    Returns:
+        Строка времени в МСК в формате YYYY-MM-DD HH:MM:SS
+    """
+    try:
+        # Определяем часовые пояса
+        utc_tz = pytz.UTC
+        msk_tz = pytz.timezone('Europe/Moscow')
+        
+        # Парсим строку UTC
+        if '+' in utc_datetime_str or 'Z' in utc_datetime_str:
+            # Если есть информация о часовом поясе
+            naive_dt = datetime.fromisoformat(utc_datetime_str.replace('Z', '+00:00'))
+            utc_dt = naive_dt.astimezone(utc_tz) if naive_dt.tzinfo is None else naive_dt
+        else:
+            # Если нет информации о часовом поясе, считаем что это UTC
+            naive_dt = datetime.fromisoformat(utc_datetime_str)
+            utc_dt = utc_tz.localize(naive_dt)
+        
+        # Конвертируем в МСК
+        msk_dt = utc_dt.astimezone(msk_tz)
+        
+        # Форматируем для удобного отображения
+        return msk_dt.strftime('%Y-%m-%d %H:%M:%S')
+    except Exception as e:
+        logger.error(f"Ошибка конвертации времени с pytz: {str(e)}")
+        return utc_datetime_str
+
+# Альтернативная функция с простым подходом
+def get_current_msk_time():
+    """Получает текущее время в МСК"""
+    msk_tz = pytz.timezone('Europe/Moscow')
+    msk_time = datetime.now(msk_tz)
+    return msk_time.strftime('%Y-%m-%d %H:%M:%S')
 
 # Функция запроса погоды
 def get_weather_data(client, latitude, longitude, forecast_days=7):
@@ -91,16 +134,28 @@ def get_weather_data(client, latitude, longitude, forecast_days=7):
         hourly = response.Hourly()
         daily = response.Daily()
         
+        # Получаем время в UTC
+        utc_time = datetime.fromtimestamp(current.Time(), timezone.utc)
+        utc_time_str = utc_time.isoformat()
+        
+        # Конвертируем в МСК с использованием pytz
+        msk_time_str = convert_utc_to_msk_pytz(utc_time_str)
+        
+        # Получаем текущее время выполнения скрипта в МСК
+        current_msk_time = get_current_msk_time()
+        
         # Формирование результата
         weather_data = {
-            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "timestamp": current_msk_time,  # Время получения данных в МСК
+            "timestamp_utc": datetime.now(timezone.utc).isoformat(),  # Для справки
             "coordinates": {
                 "latitude": latitude,
                 "longitude": longitude,
                 "elevation": response.Elevation()
             },
             "current": {
-                "time": datetime.fromtimestamp(current.Time(), timezone.utc).isoformat(),
+                "time_utc": utc_time_str,
+                "time_msk": msk_time_str,  # Время наблюдения в МСК
                 "temperature": round(current.Variables(0).Value(), 1),
                 "humidity": round(current.Variables(1).Value()),
                 "apparent_temperature": round(current.Variables(2).Value(), 1),
@@ -155,15 +210,16 @@ def log_weather_summary(weather_data):
         current['weather_code'], 
         f"Код погоды: {current['weather_code']}"
     )
-    
+
     logger.info("СВОДКА ПОГОДЫ")
-    logger.info(f"Время: {current['time'][11:19]} UTC")
-    logger.info(f"Температура: {current['temperature']}°C (ощущается как {current['apparent_temperature']}°C)")
-    logger.info(f"Влажность: {current['humidity']}%")
-    logger.info(f"Погода: {weather_description}")
-    logger.info(f"Ветер: {current['wind_speed']} км/ч, порывы до {current['wind_gusts']} км/ч")
-    logger.info(f"Давление: {current['surface_pressure']} hPa")
-    logger.info(f"Осадки: {current['precipitation']} мм/ч")
+    logger.info(f"Время наблюдения (МСК): {current['time_msk']}")
+    logger.info(f"Время запроса (МСК):    {weather_data['timestamp']}")
+    logger.info(f"Температура:            {current['temperature']}°C (ощущается как {current['apparent_temperature']}°C)")
+    logger.info(f"Влажность:              {current['humidity']}%")
+    logger.info(f"Погода:                 {weather_description}")
+    logger.info(f"Ветер:                  {current['wind_speed']} км/ч, порывы до {current['wind_gusts']} км/ч")
+    logger.info(f"Давление:               {current['surface_pressure']} hPa")
+    logger.info(f"Осадки:                 {current['precipitation']} мм/ч")
 
 def main():
     # Настройка логирования
@@ -210,5 +266,11 @@ def main():
 
 if __name__ == '__main__':
     start_time = time()  # Время начала запуска скрипта
+    logger.info(f"Скрипт запущен в {get_current_msk_time()} (МСК)")
     main()
-    logger.info(f'Скрипт выполнен за {(time() - start_time):.2f} с\n{"=" * 100}')
+    
+    # Получаем время окончания в МСК
+    msk_tz = pytz.timezone('Europe/Moscow')
+    end_time_msk = datetime.now(msk_tz).strftime('%Y-%m-%d %H:%M:%S')
+    
+    logger.info(f'Скрипт выполнен в {end_time_msk} (МСК) за {(time() - start_time):.2f} секунд \n{'=' * 110}')
