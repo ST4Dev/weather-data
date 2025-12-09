@@ -4,7 +4,7 @@ from utils.logger import get_logger, setup_logging
 import openmeteo_requests
 import requests_cache
 from retry_requests import retry
-import pytz  # Добавляем импорт pytz
+import pytz
 
 logger = get_logger('Weather-data')
 
@@ -225,7 +225,7 @@ def main():
     # Настройка логирования
     setup_logging(
         log_file='weather-data.log',
-        log_level=10,  # DEBUG
+        log_level=20,  # INFO
         console=True, 
         suppress_third_party=True,
         enable_file_logging=True
@@ -256,11 +256,8 @@ def main():
         log_weather_summary(weather_data)
         
         # Дополнительная информация для отладки
-        # logger.debug(f"Полные данные: {weather_data}")
-        
-        # Здесь можно добавить сохранение в базу данных, файл и т.д.
-        # save_to_database(weather_data)
-        # save_to_json(weather_data, 'weather_data.json')
+        logger.debug(f"Полные данные: {weather_data}")
+
     else:
         logger.warning("Не удалось получить данные погоды")
 
