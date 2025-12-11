@@ -16,7 +16,7 @@ if [ "$EUID" -ne 0 ]; then
 fi
 
 # Переменные
-USER="soultrader"
+USER="soultrader"  # Заменить имя на необходимое
 GROUP="adm"
 PROJECT_DIR="/home/$USER/weather-data"
 VENV_DIR="$PROJECT_DIR/venv"
@@ -68,7 +68,7 @@ fi
 # 5. Установка Python зависимостей
 log_info "Установка зависимостей Python..."
 sudo -u "$USER" bash -c "source $VENV_DIR/bin/activate && pip install --upgrade pip"
-sudo -u "$USER" bash -c "source $VENV_DIR/bin/activate && pip install -r requirements.txt"
+sudo -u "$USER" bash -c "source $VENV_DIR/bin/activate && pip install -r ./requirements.txt"
 # sudo -u "$USER" bash -c "source $VENV_DIR/bin/activate && pip install openmeteo-requests requests-cache retry-requests pytz"
 
 # 6. Настройка прав доступа
@@ -115,7 +115,21 @@ Description=Run weather data collection every 5 minutes
 Requires=weather-data.service
 
 [Timer]
+# Каждые 5 минут
 OnCalendar=*:0/5
+
+# Каждые 10 минут
+# OnCalendar=*:0/10
+
+# Каждый час в 00 минут
+# OnCalendar=hourly
+
+# Каждые 30 минут
+# OnCalendar=*:0/30
+
+# В определенное время (например, каждые 3 часа)
+# OnCalendar=00:00,03:00,06:00,09:00,12:00,15:00,18:00,21:00
+
 Persistent=true
 RandomizedDelaySec=30
 
@@ -187,6 +201,6 @@ echo "=========================================="
 
 # 12. Первоначальный запуск
 log_info "Выполняю первоначальный запуск для проверки..."
-sudo -u "$USER" bash -c "cd $PROJECT_DIR && source $VENV_DIR/bin/activate && python weather_data.py"
+sudo -u "$USER" bash -c "cd $PROJECT_DIR && source $VENV_DIR/bin/activate && python ./src/weather_data.py"
 
 log_success "Установка завершена успешно!"
