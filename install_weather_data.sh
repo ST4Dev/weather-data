@@ -15,16 +15,6 @@ if [ "$EUID" -ne 0 ]; then
     exit 1
 fi
 
-# Переменные
-USER="soultrader"  # Заменить имя на необходимое
-GROUP="adm"
-PROJECT_DIR="/home/$USER/weather-data"
-VENV_DIR="$PROJECT_DIR/venv"
-REPO_URL="https://github.com/ST4Dev/weather-data.git"
-SERVICE_FILE="/etc/systemd/system/weather-data.service"
-TIMER_FILE="/etc/systemd/system/weather-data.timer"
-REQUIREMENTS_FILE="$PROJECT_DIR/requirements.txt"
-
 # Функция для вывода сообщений
 log_info() {
     echo "[INFO] $1"
@@ -38,18 +28,96 @@ log_success() {
     echo "[SUCCESS] $1"
 }
 
-# 1. Обновление системы и установка зависимостей
-log_info "Обновление системы и установка зависимостей..."
-apt update && apt upgrade -y
-apt install -y python3 python3-pip python3-venv git
+# 1. Запрос имени пользователя
+echo ""
+echo "Введите имя пользователя, от которого будет работать сервис:"
+read -p "Имя пользователя (по умолчанию: soultrader): " USER_INPUT
+
+# Установка значения по умолчанию, если пользователь не ввел ничего
+if [ -z "$USER_INPUT" ]; then
+    USER="soultrader"
+    log_info "Используется пользователь по умолчанию: $USER"
+else
+    USER="$USER_INPUT"
+    log_info "Установлен пользователь: $USER"
+fi
+
+# Переменные
+GROUP="adm"
+PROJECT_DIR="/home/$USER/weather-data"
+VENV_DIR="$PROJECT_DIR/venv"
+REPO_URL="https://github.com/ST4Dev/weather-data.git"
+SERVICE_FILE="/etc/systemd/system/weather-data.service"
+TIMER_FILE="/etc/systemd/system/weather-data.timer"
+REQUIREMENTS_FILE="$PROJECT_DIR/requirements.txt"
 
 # 2. Проверка существования пользователя
 if ! id "$USER" &>/dev/null; then
     log_error "Пользователь $USER не существует!"
-    exit 1
+    echo ""
+    echo "Хотите создать пользователя? (y/n): "
+    read -p "Ваш выбор: " CREATE_USER
+    
+    if [[ "$CREATE_USER" =~ ^[Yy]$ ]]; then
+        log_info "Создание пользователя $USER..."
+        
+        # Создаем пользователя
+        adduser --gecos "" "$USER"
+        
+        # Добавляем пользователя в группу adm для доступа к логам
+        usermod -aG adm "$USER"
+        
+        # Добавляем пользователя в группу sudo
+        usermod -aG sudo "$USER"
+        
+        # Настройка sudo без пароля для текущего пользователя (опционально)
+        echo "Хотите настроить sudo без пароля для пользователя $USER? (y/n): "
+        read -p "Ваш выбор: " SUDO_NOPASSWD
+        
+        if [[ "$SUDO_NOPASSWD" =~ ^[Yy]$ ]]; then
+            log_info "Настройка sudo без пароля..."
+            echo "$USER ALL=(ALL) NOPASSWD:ALL" > /etc/sudoers.d/$USER
+            chmod 0440 /etc/sudoers.d/$USER
+            log_success "Настроен sudo без пароля для пользователя $USER"
+        fi
+        
+        log_success "Пользователь $USER создан и добавлен в группы adm и sudo"
+    else
+        log_error "Установка прервана. Создайте пользователя $USER вручную и запустите скрипт снова."
+        exit 1
+    fi
+else
+    # Проверяем, есть ли пользователь в группе sudo
+    if ! groups "$USER" | grep -q "\bsudo\b"; then
+        log_info "Пользователь $USER существует, но не входит в группу sudo"
+        echo ""
+        echo "Хотите добавить пользователя $USER в группу sudo? (y/n): "
+        read -p "Ваш выбор: " ADD_TO_SUDO
+        
+        if [[ "$ADD_TO_SUDO" =~ ^[Yy]$ ]]; then
+            usermod -aG sudo "$USER"
+            log_success "Пользователь $USER добавлен в группу sudo"
+        else
+            log_info "Пользователь $USER не добавлен в группу sudo (ограниченные права)"
+        fi
+    else
+        log_success "Пользователь $USER уже входит в группу sudo"
+    fi
+    
+    # Проверяем, есть ли пользователь в группе adm
+    if ! groups "$USER" | grep -q "\badm\b"; then
+        log_info "Добавляем пользователя $USER в группу adm..."
+        usermod -aG adm "$USER"
+        log_success "Пользователь $USER добавлен в группу adm"
+    fi
 fi
 
-# 3. Клонирование или обновление репозитория
+# 3. Обновление системы и установка зависимостей
+log_info "Обновление системы и установка зависимостей..."
+apt update && apt upgrade -y
+apt install -y python3 python3-pip python3-venv git
+
+# 4. Клонирование или обновление репозитория
 log_info "Работа с репозиторием..."
 if [ -d "$PROJECT_DIR" ]; then
     log_info "Директория уже существует, обновляем..."
@@ -60,13 +128,13 @@ else
     sudo -u "$USER" git clone "$REPO_URL" "$PROJECT_DIR"
 fi
 
-# 4. Создание виртуального окружения
+# 5. Создание виртуального окружения
 log_info "Настройка виртуального окружения..."
 if [ ! -d "$VENV_DIR" ]; then
     sudo -u "$USER" python3 -m venv "$VENV_DIR"
 fi
 
-# 5. Установка Python зависимостей
+# 6. Установка Python зависимостей
 log_info "Установка зависимостей Python..."
 
 # Переходим в директорию проекта
@@ -89,12 +157,12 @@ sudo -u "$USER" bash -c "source $VENV_DIR/bin/activate && pip install -r '$REQUI
 # Альтернативная установка, если requirements.txt пустой или содержит только основные пакеты
 # sudo -u "$USER" bash -c "source $VENV_DIR/bin/activate && pip install openmeteo-requests requests-cache retry-requests pytz"
 
-# 6. Настройка прав доступа
+# 7. Настройка прав доступа
 log_info "Настройка прав доступа..."
 chown -R "$USER:$GROUP" "$PROJECT_DIR"
 find "$PROJECT_DIR" -type f -name "*.py" -exec chmod 755 {} \;
 
-# 7. Создание файлов systemd
+# 8. Создание файлов systemd
 log_info "Создание systemd сервиса..."
 
 # Сервисный файл
@@ -155,18 +223,18 @@ RandomizedDelaySec=30
 WantedBy=timers.target
 EOF
 
-# 8. Настройка systemd
+# 9. Настройка systemd
 log_info "Настройка systemd..."
 systemctl daemon-reload
 systemctl enable weather-data.timer
 systemctl start weather-data.timer
 
-# 9. Запуск тестового выполнения
+# 10. Запуск тестового выполнения
 log_info "Тестовый запуск сервиса..."
 systemctl start weather-data.service
 sleep 2
 
-# 10. Проверка установки
+# 11. Проверка установки
 log_info "Проверка установки..."
 
 # Проверка сервиса
@@ -193,7 +261,7 @@ else
     log_info "Файл логов еще не создан (первый запуск может быть в процессе)"
 fi
 
-# 11. Вывод информации
+# 12. Вывод информации
 echo ""
 echo "=========================================="
 echo " Установка завершена!"
@@ -217,7 +285,7 @@ echo ""
 echo "Расписание: сбор данных каждые 15 минут"
 echo "=========================================="
 
-# 12. Первоначальный запуск
+# 13. Первоначальный запуск
 log_info "Выполняю первоначальный запуск для проверки..."
 cd "$PROJECT_DIR"
 sudo -u "$USER" bash -c "source $VENV_DIR/bin/activate && python ./src/weather_data.py"
