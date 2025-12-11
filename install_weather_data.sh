@@ -23,6 +23,7 @@ VENV_DIR="$PROJECT_DIR/venv"
 REPO_URL="https://github.com/ST4Dev/weather-data.git"
 SERVICE_FILE="/etc/systemd/system/weather-data.service"
 TIMER_FILE="/etc/systemd/system/weather-data.timer"
+REQUIREMENTS_FILE="$PROJECT_DIR/requirements.txt"
 
 # Функция для вывода сообщений
 log_info() {
@@ -67,8 +68,25 @@ fi
 
 # 5. Установка Python зависимостей
 log_info "Установка зависимостей Python..."
+
+# Переходим в директорию проекта
+cd "$PROJECT_DIR"
+
+# Проверяем существование requirements.txt
+if [ ! -f "$REQUIREMENTS_FILE" ]; then
+    log_error "Файл requirements.txt не найден в $PROJECT_DIR"
+    echo "Содержимое директории $PROJECT_DIR:"
+    ls -la "$PROJECT_DIR"
+    exit 1
+fi
+
+log_info "Найден файл requirements.txt, устанавливаем зависимости..."
+
+# Устанавливаем зависимости из requirements.txt
 sudo -u "$USER" bash -c "source $VENV_DIR/bin/activate && pip install --upgrade pip"
-sudo -u "$USER" bash -c "source $VENV_DIR/bin/activate && pip install -r ./requirements.txt"
+sudo -u "$USER" bash -c "source $VENV_DIR/bin/activate && pip install -r '$REQUIREMENTS_FILE'"
+
+# Альтернативная установка, если requirements.txt пустой или содержит только основные пакеты
 # sudo -u "$USER" bash -c "source $VENV_DIR/bin/activate && pip install openmeteo-requests requests-cache retry-requests pytz"
 
 # 6. Настройка прав доступа
@@ -111,12 +129,12 @@ EOF
 # Таймер
 cat > "$TIMER_FILE" << EOF
 [Unit]
-Description=Run weather data collection every 5 minutes
+Description=Run weather data collection every 15 minutes
 Requires=weather-data.service
 
 [Timer]
-# Каждые 5 минут
-OnCalendar=*:0/5
+# Каждые 15 минут
+OnCalendar=*:0/15
 
 # Каждые 10 минут
 # OnCalendar=*:0/10
@@ -196,11 +214,12 @@ echo "  Кэш API:             $PROJECT_DIR/.cache/"
 echo "  Сервис systemd:      $SERVICE_FILE"
 echo "  Таймер systemd:      $TIMER_FILE"
 echo ""
-echo "Расписание: сбор данных каждые 5 минут"
+echo "Расписание: сбор данных каждые 15 минут"
 echo "=========================================="
 
 # 12. Первоначальный запуск
 log_info "Выполняю первоначальный запуск для проверки..."
-sudo -u "$USER" bash -c "cd $PROJECT_DIR && source $VENV_DIR/bin/activate && python ./src/weather_data.py"
+cd "$PROJECT_DIR"
+sudo -u "$USER" bash -c "source $VENV_DIR/bin/activate && python ./src/weather_data.py"
 
 log_success "Установка завершена успешно!"
